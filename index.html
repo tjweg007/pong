@@ -78,6 +78,57 @@
       text-align: center;
       line-height: 1.8;
     }
+
+    /* ── Persistent controls bar ── */
+    #controlsBar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .ctrl-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ctrl-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #555;
+    }
+    .ctrl-keys {
+      display: flex;
+      gap: 4px;
+    }
+    kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 26px;
+      height: 26px;
+      padding: 0 6px;
+      background: #1a1a1a;
+      border: 1px solid #383838;
+      border-bottom: 3px solid #282828;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.7rem;
+      color: #ccc;
+      white-space: nowrap;
+    }
+    .ctrl-sep {
+      width: 1px;
+      height: 24px;
+      background: #222;
+    }
+    .ctrl-cpu {
+      font-size: 0.75rem;
+      color: #555;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -91,6 +142,25 @@
       <button id="btn2p">2 Players</button>
     </div>
     <div id="controls"></div>
+  </div>
+</div>
+
+<div id="controlsBar">
+  <div class="ctrl-group">
+    <span class="ctrl-label">P1</span>
+    <div class="ctrl-keys">
+      <kbd>W</kbd><kbd>S</kbd>
+    </div>
+  </div>
+  <div class="ctrl-sep"></div>
+  <div class="ctrl-group" id="p2Controls">
+    <span class="ctrl-label">P2</span>
+    <span class="ctrl-cpu">CPU</span>
+  </div>
+  <div class="ctrl-sep"></div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Pause</span>
+    <div class="ctrl-keys"><kbd>ESC</kbd></div>
   </div>
 </div>
 
@@ -181,8 +251,18 @@ function startGame(m) {
   resetRound(null);
   state = 'playing';
   overlay.style.display = 'none';
+  updateControlsBar(m);
   if (animId) cancelAnimationFrame(animId);
   loop();
+}
+
+function updateControlsBar(m) {
+  const p2El = document.getElementById('p2Controls');
+  if (m === '2p') {
+    p2El.innerHTML = '<span class="ctrl-label">P2</span><div class="ctrl-keys"><kbd>↑</kbd><kbd>↓</kbd></div>';
+  } else {
+    p2El.innerHTML = '<span class="ctrl-label">P2</span><span class="ctrl-cpu">CPU</span>';
+  }
 }
 
 function showMenu() {
