@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pong</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #fff;
+      overflow: hidden;
+    }
+    #gameWrapper {
+      position: relative;
+    }
+    canvas {
+      display: block;
+      border: 2px solid #333;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.78);
+      gap: 18px;
+    }
+    #overlay h1 {
+      font-size: 3rem;
+      letter-spacing: 0.3em;
+      color: #fff;
+      text-shadow: 0 0 20px rgba(255,255,255,0.4);
+    }
+    #overlay p {
+      font-size: 1rem;
+      color: #aaa;
+      text-align: center;
+      line-height: 1.8;
+    }
+    .mode-buttons {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+    }
+    button {
+      background: transparent;
+      border: 2px solid #fff;
+      color: #fff;
+      padding: 10px 28px;
+      font-size: 1rem;
+      font-family: 'Courier New', monospace;
+      cursor: pointer;
+      letter-spacing: 0.1em;
+      transition: background 0.15s, color 0.15s;
+    }
+    button:hover {
+      background: #fff;
+      color: #000;
+    }
+    #winMsg {
+      font-size: 1.4rem;
+      color: #fff;
+      text-shadow: 0 0 14px rgba(255,255,255,0.5);
+    }
+    #controls {
+      margin-top: 6px;
+      font-size: 0.8rem;
+      color: #555;
+      text-align: center;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+<div id="gameWrapper">
+  <canvas id="pong"></canvas>
+  <div id="overlay">
+    <h1>PONG</h1>
+    <p id="overlayDesc">Choose a game mode to play.</p>
+    <div class="mode-buttons">
+      <button id="btn1p">vs CPU</button>
+      <button id="btn2p">2 Players</button>
+    </div>
+    <div id="controls"></div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('pong');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const winMsg = document.createElement('div');
+winMsg.id = 'winMsg';
+const overlayDesc = document.getElementById('overlayDesc');
+const controlsDiv = document.getElementById('controls');
+const btn1p = document.getElementById('btn1p');
+const btn2p = document.getElementById('btn2p');
+
+// Responsive sizing
+const BASE_W = 800;
+const BASE_H = 500;
+const PADDLE_W = 12;
+const PADDLE_H = 80;
+const BALL_SIZE = 10;
+const WIN_SCORE = 7;
+
+let W, H, scaleX, scaleY;
+
+function resize() {
+  const maxW = Math.min(window.innerWidth - 32, 900);
+  const maxH = Math.min(window.innerHeight - 80, 600);
+  const ratio = BASE_W / BASE_H;
+  let w = maxW;
+  let h = w / ratio;
+  if (h > maxH) { h = maxH; w = h * ratio; }
+  W = Math.floor(w);
+  H = Math.floor(h);
+  canvas.width = W;
+  canvas.height = H;
+  scaleX = W / BASE_W;
+  scaleY = H / BASE_H;
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+// Game state
+let mode = null; // '1p' or '2p'
+let state = 'menu'; // 'menu' | 'playing' | 'paused' | 'gameover'
+let scores = [0, 0];
+let animId = null;
+
+const paddle = [
+  { y: BASE_H / 2 - PADDLE_H / 2, dy: 0 },
+  { y: BASE_H / 2 - PADDLE_H / 2, dy: 0 },
+];
+let ball = makeBall();
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === 'Escape' && state === 'playing') togglePause();
+  if ((e.key === 'Enter' || e.key === ' ') && state === 'gameover') showMenu();
+  e.preventDefault && ['ArrowUp','ArrowDown',' '].includes(e.key) && e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+function makeBall(lastScorer = null) {
+  const dirX = lastScorer === 0 ? 1 : lastScorer === 1 ? -1 : (Math.random() < 0.5 ? 1 : -1);
+  const angle = (Math.random() * 50 - 25) * Math.PI / 180;
+  const spd = 5;
+  return {
+    x: BASE_W / 2,
+    y: BASE_H / 2,
+    vx: spd * dirX * Math.cos(angle),
+    vy: spd * Math.sin(angle),
+    speed: spd,
+  };
+}
+
+function resetRound(scorer) {
+  ball = makeBall(scorer);
+  paddle[0].y = BASE_H / 2 - PADDLE_H / 2;
+  paddle[1].y = BASE_H / 2 - PADDLE_H / 2;
+}
+
+btn1p.addEventListener('click', () => startGame('1p'));
+btn2p.addEventListener('click', () => startGame('2p'));
+
+function startGame(m) {
+  mode = m;
+  scores = [0, 0];
+  resetRound(null);
+  state = 'playing';
+  overlay.style.display = 'none';
+  if (animId) cancelAnimationFrame(animId);
+  loop();
+}
+
+function showMenu() {
+  state = 'menu';
+  overlay.style.display = 'flex';
+  overlayDesc.textContent = 'Choose a game mode to play.';
+  if (overlay.contains(winMsg)) overlay.removeChild(winMsg);
+  controlsDiv.innerHTML = '<b>P1:</b> W / S &nbsp;|&nbsp; <b>P2 (2P):</b> ↑ / ↓ &nbsp;|&nbsp; <b>Pause:</b> ESC';
+  if (animId) cancelAnimationFrame(animId);
+}
+
+function togglePause() {
+  if (state === 'playing') {
+    state = 'paused';
+    overlay.style.display = 'flex';
+    overlayDesc.textContent = 'PAUSED — Press ESC or click to resume.';
+    if (overlay.contains(winMsg)) overlay.removeChild(winMsg);
+    controlsDiv.innerHTML = '';
+    overlay.addEventListener('click', resumeOnClick);
+  } else if (state === 'paused') {
+    resumeGame();
+  }
+}
+
+function resumeOnClick() {
+  overlay.removeEventListener('click', resumeOnClick);
+  resumeGame();
+}
+
+function resumeGame() {
+  state = 'playing';
+  overlay.style.display = 'none';
+  loop();
+}
+
+function showGameOver(winner) {
+  state = 'gameover';
+  overlay.style.display = 'flex';
+  overlayDesc.textContent = '';
+  winMsg.textContent = winner === 0
+    ? (mode === '1p' ? 'YOU WIN! 🏆' : 'Player 1 Wins!')
+    : (mode === '1p' ? 'CPU WINS!' : 'Player 2 Wins!');
+  if (!overlay.contains(winMsg)) overlay.insertBefore(winMsg, overlayDesc.nextSibling);
+  controlsDiv.innerHTML = 'Press ENTER or SPACE to return to menu.';
+  const modeButtons = overlay.querySelector('.mode-buttons');
+  modeButtons.style.display = 'flex';
+}
+
+// AI for CPU mode
+function updateAI() {
+  const p = paddle[1];
+  const centerY = p.y + PADDLE_H / 2;
+  const targetY = ball.y;
+  const diff = targetY - centerY;
+  const aiSpeed = 3.8 + Math.min(scores[0] + scores[1], 6) * 0.15;
+  if (Math.abs(diff) > 4) {
+    p.y += diff > 0 ? aiSpeed : -aiSpeed;
+  }
+  p.y = clamp(p.y, 0, BASE_H - PADDLE_H);
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+function update() {
+  const SPEED_P = 6;
+
+  if (keys['w'] || keys['W']) paddle[0].y -= SPEED_P;
+  if (keys['s'] || keys['S']) paddle[0].y += SPEED_P;
+  paddle[0].y = clamp(paddle[0].y, 0, BASE_H - PADDLE_H);
+
+  if (mode === '2p') {
+    if (keys['ArrowUp']) paddle[1].y -= SPEED_P;
+    if (keys['ArrowDown']) paddle[1].y += SPEED_P;
+    paddle[1].y = clamp(paddle[1].y, 0, BASE_H - PADDLE_H);
+  } else {
+    updateAI();
+  }
+
+  // Move ball
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Top/bottom wall bounce
+  if (ball.y - BALL_SIZE / 2 <= 0) {
+    ball.y = BALL_SIZE / 2;
+    ball.vy = Math.abs(ball.vy);
+  }
+  if (ball.y + BALL_SIZE / 2 >= BASE_H) {
+    ball.y = BASE_H - BALL_SIZE / 2;
+    ball.vy = -Math.abs(ball.vy);
+  }
+
+  // Paddle collision helper
+  function paddleHit(pIndex) {
+    const px = pIndex === 0 ? PADDLE_W + 12 : BASE_W - PADDLE_W - 12;
+    const py = paddle[pIndex].y;
+    const halfW = PADDLE_W / 2;
+    const ballLeft = ball.x - BALL_SIZE / 2;
+    const ballRight = ball.x + BALL_SIZE / 2;
+    const ballTop = ball.y - BALL_SIZE / 2;
+    const ballBottom = ball.y + BALL_SIZE / 2;
+    const padLeft = px - halfW;
+    const padRight = px + halfW;
+    const padTop = py;
+    const padBottom = py + PADDLE_H;
+
+    if (ballRight >= padLeft && ballLeft <= padRight &&
+        ballBottom >= padTop && ballTop <= padBottom) {
+      // Relative hit position [-1, 1]
+      const rel = ((ball.y - py) / PADDLE_H) * 2 - 1;
+      const bounceAngle = rel * 65 * Math.PI / 180;
+      ball.speed = Math.min(ball.speed + 0.4, 14);
+      const dir = pIndex === 0 ? 1 : -1;
+      ball.vx = dir * ball.speed * Math.cos(bounceAngle);
+      ball.vy = ball.speed * Math.sin(bounceAngle);
+      // Push ball out of paddle
+      if (pIndex === 0) ball.x = px + halfW + BALL_SIZE / 2;
+      else ball.x = px - halfW - BALL_SIZE / 2;
+      return true;
+    }
+    return false;
+  }
+
+  paddleHit(0);
+  paddleHit(1);
+
+  // Scoring
+  if (ball.x < 0) {
+    scores[1]++;
+    if (scores[1] >= WIN_SCORE) { showGameOver(1); return; }
+    resetRound(1);
+  } else if (ball.x > BASE_W) {
+    scores[0]++;
+    if (scores[0] >= WIN_SCORE) { showGameOver(0); return; }
+    resetRound(0);
+  }
+}
+
+function draw() {
+  ctx.save();
+  ctx.scale(scaleX, scaleY);
+
+  // Background
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  // Center line
+  ctx.setLineDash([12, 14]);
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(BASE_W / 2, 0);
+  ctx.lineTo(BASE_W / 2, BASE_H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Scores
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 52px "Courier New"';
+  ctx.textAlign = 'center';
+  ctx.globalAlpha = 0.85;
+  ctx.fillText(scores[0], BASE_W / 2 - 80, 70);
+  ctx.fillText(scores[1], BASE_W / 2 + 80, 70);
+  ctx.globalAlpha = 1;
+
+  // Win indicator dots
+  for (let s = 0; s < WIN_SCORE; s++) {
+    const filled0 = s < scores[0];
+    const filled1 = s < scores[1];
+    const dotX0 = BASE_W / 2 - 80 - ((WIN_SCORE - 1) / 2 - s) * 12;
+    const dotX1 = BASE_W / 2 + 80 - ((WIN_SCORE - 1) / 2 - s) * 12;
+    ctx.fillStyle = filled0 ? '#fff' : '#333';
+    ctx.beginPath(); ctx.arc(dotX0, 88, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = filled1 ? '#fff' : '#333';
+    ctx.beginPath(); ctx.arc(dotX1, 88, 4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Paddles
+  const p0x = PADDLE_W + 12;
+  const p1x = BASE_W - PADDLE_W - 12;
+  const rnd = 4;
+
+  function drawPaddle(x, y) {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(x - PADDLE_W / 2, y, PADDLE_W, PADDLE_H, rnd);
+    ctx.fill();
+  }
+
+  drawPaddle(p0x, paddle[0].y);
+  drawPaddle(p1x, paddle[1].y);
+
+  // Ball
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.roundRect(ball.x - BALL_SIZE / 2, ball.y - BALL_SIZE / 2, BALL_SIZE, BALL_SIZE, 2);
+  ctx.fill();
+
+  // Mode label
+  ctx.fillStyle = '#333';
+  ctx.font = '11px "Courier New"';
+  ctx.textAlign = 'center';
+  ctx.fillText(mode === '1p' ? 'vs CPU' : '2 PLAYERS', BASE_W / 2, BASE_H - 8);
+
+  ctx.restore();
+}
+
+function loop() {
+  if (state !== 'playing') return;
+  update();
+  draw();
+  animId = requestAnimationFrame(loop);
+}
+
+// Initial draw of empty court
+draw();
+
+// Set control hints on menu
+controlsDiv.innerHTML = '<b>P1:</b> W / S &nbsp;|&nbsp; <b>P2 (2P):</b> ↑ / ↓ &nbsp;|&nbsp; <b>Pause:</b> ESC';
+</script>
+</body>
+</html>
